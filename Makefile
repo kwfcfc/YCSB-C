@@ -4,11 +4,11 @@ MONGOC_CFLAGS=$(pkg-config --cflags libmongoc-1.0)
 MONGOC_LIBS=$(pkg-config --libs libmongoc-1.0)
 
 CFLAGS=-std=c++11 -g -Wall -pthread -I./ $(MONGOC_CFLAGS)
-LDFLAGS= -lpthread -ltbb -lhiredis $(MONGOC_LIBS)
+LDFLAGS= -lpthread -ltbb $(MONGOC_LIBS)
 
 export CFLAGS
 
-SUBDIRS=core db redis
+SUBDIRS=core db
 SUBSRCS=$(wildcard core/*.cc) $(wildcard db/*.cc)
 OBJECTS=$(SUBSRCS:.cc=.o)
 EXEC=ycsbc

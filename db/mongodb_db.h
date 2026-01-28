@@ -43,8 +43,8 @@ class MongoDB : public DB {
   mongoc_database_t *database_;
   mongoc_write_concern_t *write_concern_;
 
-  std::string db_name_;
   std::string url_;
+  std::string db_name_;
   std::string wc_type_;
 };
 

@@ -37,7 +37,7 @@ DB* DBFactory::CreateDB(utils::Properties &props) {
     string url = props.GetProperty("mongodb.url", "mongodb://localhost:27017");
     string db_name = props.GetProperty("mongodb.database", "ycsb");
     string wc_type = props.GetProperty("mongodb.writeConcern", "normal");
-    return new MongoDB();
+    return new MongoDB(url, db_name, wc_type);
   } else
     return NULL;
 }

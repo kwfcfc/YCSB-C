@@ -6,6 +6,12 @@ SUBSRCS=$(wildcard core/*.cc) $(wildcard db/*.cc)
 OBJECTS=$(SUBSRCS:.cc=.o)
 EXEC=ycsbc
 
+MONGOC_CFLAGS=$(pkg-config --cflags libmongoc-1.0)
+MONGOC_LIBS=$(pkg-config --libs libmongoc-1.0)
+
+CFLAGS += $(MONGOC_CFLAGS)
+LDFLAGS += $(MONGOC_LIBS)
+
 all: $(SUBDIRS) $(EXEC)
 
 $(SUBDIRS):

@@ -1,5 +1,5 @@
 //
-//  redis_db.h
+//  mongodb_db.h
 //  YCSB-C
 //
 
@@ -7,52 +7,43 @@
 #define YCSB_C_MONGODB_DB_H_
 
 #include "core/db.h"
-
-#include <iostream>
-#include <string>
-#include "core/properties.h"
 #include <mongoc/mongoc.h>
-
-using std::cout;
-using std::endl;
+#include <string>
+#include <vector>
 
 namespace ycsbc {
 
-class RedisDB : public DB {
+class MongoDB : public DB {
  public:
-  RedisDB(const char *host, int port, int slaves) :
-      redis_(host, port, slaves) {
-  }
+  MongoDB();
+  virtual ~MongoDB();
+
+  void Init();
+  void Close();
 
   int Read(const std::string &table, const std::string &key,
            const std::vector<std::string> *fields,
            std::vector<KVPair> &result);
 
   int Scan(const std::string &table, const std::string &key,
-           int len, const std::vector<std::string> *fields,
-           std::vector<std::vector<KVPair>> &result) {
-    throw "Scan: function not implemented!";
-  }
+           int record_count, const std::vector<std::string> *fields,
+           std::vector<std::vector<KVPair>> &result);
 
   int Update(const std::string &table, const std::string &key,
              std::vector<KVPair> &values);
 
   int Insert(const std::string &table, const std::string &key,
-             std::vector<KVPair> &values) {
-    return Update(table, key, values);
-  }
+             std::vector<KVPair> &values);
 
-  int Delete(const std::string &table, const std::string &key) {
-    std::string cmd("DEL " + key);
-    redis_.Command(cmd);
-    return DB::kOK;
-  }
+  int Delete(const std::string &table, const std::string &key);
 
  private:
-  RedisClient redis_;
+  mongoc_client_t *client_;
+  mongoc_database_t *database_;
+  mongoc_write_concern_t *write_concern_;
+  std::string db_name_;
 };
 
-} // ycsbc
+} // namespace ycsbc
 
-#endif // YCSB_C_REDIS_DB_H_
-
+#endif // YCSB_C_MONGODB_DB_H_

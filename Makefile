@@ -1,10 +1,10 @@
 CC=g++
 
-MONGOC_CFLAGS=$(pkg-config --cflags libmongoc-1.0)
-MONGOC_LIBS=$(pkg-config --libs libmongoc-1.0)
+MONGOC_CFLAGS=$(shell pkg-config --cflags libmongoc-1.0)
+MONGOC_LIBS=$(shell pkg-config --libs libmongoc-1.0)
 
 CFLAGS=-std=c++11 -g -Wall -pthread -I./ $(MONGOC_CFLAGS)
-LDFLAGS= -lpthread -ltbb $(MONGOC_LIBS)
+LDFLAGS= -lpthread -ltbb -lhiredis $(MONGOC_LIBS)
 
 export CFLAGS
 

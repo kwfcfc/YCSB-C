@@ -8,6 +8,7 @@
 
 #include "core/db.h"
 #include <mongoc/mongoc.h>
+#include <bson/bson.h>
 #include <string>
 #include <vector>
 
@@ -39,8 +40,8 @@ class MongoDB : public DB {
   int Delete(const std::string &table, const std::string &key);
 
  private:
-  mongoc_client_t *client_;
-  mongoc_database_t *database_;
+  void SetWriteConcern(mongoc_collection_t *collection);
+  mongoc_client_pool_t *pool_;
   mongoc_write_concern_t *write_concern_;
 
   std::string url_;

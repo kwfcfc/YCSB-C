@@ -1,5 +1,4 @@
 #include "mongodb_db.h"
-#include <bson/bson.h>
 #include <iostream>
 
 using namespace std;
@@ -7,7 +6,7 @@ using namespace std;
 namespace ycsbc {
 
 MongoDB::MongoDB(const string &url, const string &db_name, const string &wc_type)
-    : client_(NULL), database_(NULL), write_concern_(NULL),
+    : pool_(NULL), write_concern_(NULL),
       url_(url), db_name_(db_name), wc_type_(wc_type) {
 }
 
@@ -18,46 +17,62 @@ MongoDB::~MongoDB() {
 void MongoDB::Init() {
   mongoc_init();
 
-  // 1. 连接 MongoDB
-  // 注意：Java旧驱动需要去掉 "mongodb://" 前缀，但 libmongoc 需要这个前缀，所以这里直接使用
-  client_ = mongoc_client_new(url_.c_str());
-  if (!client_) {
-    cerr << "Failed to connect to MongoDB at " << url_ << endl;
+  // 1. 解析 URI
+  bson_error_t error;
+  mongoc_uri_t *uri = mongoc_uri_new_with_error(url_.c_str(), &error);
+  if (!uri) {
+    cerr << "Failed to parse MongoDB URI: " << url_ << endl;
+    cerr << "Error: " << error.message << endl;
     exit(1);
   }
 
-  // 2. 处理 WriteConcern (对应 Java: "strict", "normal", "none")
-  // libmongoc 使用 mongoc_write_concern_t
-  write_concern_ = mongoc_write_concern_new();
-  if (wc_type_ == "strict") {
-    // 对应 Java WriteConcern.STRICT (等待主节点确认)
-    mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type_ == "normal") {
-    // 对应 Java WriteConcern.NORMAL (网络确认)
-    mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type_ == "none") {
-    // 对应 Java WriteConcern.NONE (不等待确认)
-    mongoc_write_concern_set_w(write_concern_, 0);
+  // 2. 创建连接池
+  pool_ = mongoc_client_pool_new(uri);
+  mongoc_uri_destroy(uri); // pool 建立后，uri 对象就可以释放了
+
+  if (!pool_) {
+      cerr << "Failed to create MongoDB client pool." << endl;
+      exit(1);
   }
 
-  // 将 WriteConcern 应用到 client
-  mongoc_client_set_write_concern(client_, write_concern_);
-
-  database_ = mongoc_client_get_database(client_, db_name_.c_str());
+  // 3. 预先初始化 WriteConcern 对象
+  write_concern_ = mongoc_write_concern_new();
+  if (wc_type_ == "strict") {
+    mongoc_write_concern_set_w(write_concern_, 1);
+  } else if (wc_type_ == "normal") {
+    mongoc_write_concern_set_w(write_concern_, 1);
+  } else if (wc_type_ == "none") {
+    mongoc_write_concern_set_w(write_concern_, 0);
+  }
 }
 
 void MongoDB::Close() {
-  if (write_concern_) mongoc_write_concern_destroy(write_concern_);
-  if (database_) mongoc_database_destroy(database_);
-  if (client_) mongoc_client_destroy(client_);
+if (write_concern_) {
+      mongoc_write_concern_destroy(write_concern_);
+      write_concern_ = NULL;
+  }
+  if (pool_) {
+      mongoc_client_pool_destroy(pool_);
+      pool_ = NULL;
+  }
   mongoc_cleanup();
+}
+
+// 辅助函数：给 Collection 设置 Write Concern
+void MongoDB::SetWriteConcern(mongoc_collection_t *collection) {
+    if (write_concern_) {
+        mongoc_collection_set_write_concern(collection, write_concern_);
+    }
 }
 
 // 对应 Java: read(table, key, fields, result)
 int MongoDB::Read(const string &table, const string &key,
                   const vector<string> *fields,
                   vector<KVPair> &result) {
-  mongoc_collection_t *collection = mongoc_client_get_collection(client_, db_name_.c_str(), table.c_str());
+// 1. 从池中借出一个 client
+  mongoc_client_t *client = mongoc_client_pool_pop(pool_);
+  // 2. 获取 collection (这是轻量级操作)
+  mongoc_collection_t *collection = mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
 
   // 构建查询: { "_id": key }
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
@@ -102,13 +117,20 @@ int MongoDB::Read(const string &table, const string &key,
   bson_destroy(opts);
   mongoc_cursor_destroy(cursor);
   mongoc_collection_destroy(collection);
+
+  // 3. 将 client 还回池中
+  mongoc_client_pool_push(pool_, client);
+
   return ret;
 }
 
 // 对应 Java: insert(table, key, values)
 int MongoDB::Insert(const string &table, const string &key,
                     vector<KVPair> &values) {
-  mongoc_collection_t *collection = mongoc_client_get_collection(client_, db_name_.c_str(), table.c_str());
+  mongoc_client_t *client = mongoc_client_pool_pop(pool_);
+  mongoc_collection_t *collection =
+      mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
+  SetWriteConcern(collection);
 
   bson_t *doc = bson_new();
   BSON_APPEND_UTF8(doc, "_id", key.c_str());
@@ -124,13 +146,18 @@ int MongoDB::Insert(const string &table, const string &key,
   bson_destroy(doc);
   mongoc_collection_destroy(collection);
 
+  mongoc_client_pool_push(pool_, client);
+
   return r ? DB::kOK : DB::kErrorConflict;
 }
 
 // 对应 Java: update(table, key, values) 使用 $set
 int MongoDB::Update(const string &table, const string &key,
                     vector<KVPair> &values) {
-  mongoc_collection_t *collection = mongoc_client_get_collection(client_, db_name_.c_str(), table.c_str());
+  mongoc_client_t *client = mongoc_client_pool_pop(pool_);
+  mongoc_collection_t *collection =
+      mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
+  SetWriteConcern(collection);
 
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
 
@@ -149,13 +176,17 @@ int MongoDB::Update(const string &table, const string &key,
   bson_destroy(query);
   bson_destroy(update);
   mongoc_collection_destroy(collection);
+  mongoc_client_pool_push(pool_, client);
 
   return r ? DB::kOK : DB::kErrorConflict;
 }
 
 // 对应 Java: delete(table, key)
 int MongoDB::Delete(const string &table, const string &key) {
-  mongoc_collection_t *collection = mongoc_client_get_collection(client_, db_name_.c_str(), table.c_str());
+  mongoc_client_t *client = mongoc_client_pool_pop(pool_);
+  mongoc_collection_t *collection =
+      mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
+  SetWriteConcern(collection);
 
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
   bson_error_t error;
@@ -165,6 +196,7 @@ int MongoDB::Delete(const string &table, const string &key) {
 
   bson_destroy(query);
   mongoc_collection_destroy(collection);
+  mongoc_client_pool_push(pool_, client);
   return r ? DB::kOK : DB::kErrorNoData;
 }
 
@@ -172,7 +204,9 @@ int MongoDB::Delete(const string &table, const string &key) {
 int MongoDB::Scan(const string &table, const string &key,
                   int record_count, const std::vector<std::string> *fields,
                   vector<vector<KVPair>> &result) {
-  mongoc_collection_t *collection = mongoc_client_get_collection(client_, db_name_.c_str(), table.c_str());
+  mongoc_client_t *client = mongoc_client_pool_pop(pool_);
+  mongoc_collection_t *collection =
+      mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
 
   // Java Query: { "_id": { "$gte": startkey } }
   bson_t *query = BCON_NEW("_id", "{", "$gte", BCON_UTF8(key.c_str()), "}");
@@ -217,6 +251,7 @@ int MongoDB::Scan(const string &table, const string &key,
   bson_destroy(opts);
   mongoc_cursor_destroy(cursor);
   mongoc_collection_destroy(collection);
+  mongoc_client_pool_push(pool_, client);
   return DB::kOK;
 }
 

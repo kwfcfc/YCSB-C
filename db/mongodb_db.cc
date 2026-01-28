@@ -5,6 +5,11 @@ using namespace std;
 
 namespace ycsbc {
 
+// --- 1. 定义静态成员变量 ---
+mongoc_client_pool_t* MongoDB::pool_ = nullptr;
+int MongoDB::instance_count_ = 0;
+std::mutex MongoDB::mutex_;
+
 MongoDB::MongoDB(const string &url, const string &db_name, const string &wc_type)
     : pool_(NULL), write_concern_(NULL),
       url_(url), db_name_(db_name), wc_type_(wc_type) {
@@ -15,24 +20,33 @@ MongoDB::~MongoDB() {
 }
 
 void MongoDB::Init() {
-  mongoc_init();
+  {
+  // 加锁保护全局状态
+  lock_guard<mutex> lock(mutex_);
 
-  // 1. 解析 URI
-  bson_error_t error;
-  mongoc_uri_t *uri = mongoc_uri_new_with_error(url_.c_str(), &error);
-  if (!uri) {
-    cerr << "Failed to parse MongoDB URI: " << url_ << endl;
-    cerr << "Error: " << error.message << endl;
-    exit(1);
-  }
+  if (instance_count_ == 0) {
+    mongoc_init();
 
-  // 2. 创建连接池
-  pool_ = mongoc_client_pool_new(uri);
-  mongoc_uri_destroy(uri); // pool 建立后，uri 对象就可以释放了
+    // 1. 解析 URI
+    bson_error_t error;
+    mongoc_uri_t *uri = mongoc_uri_new_with_error(url_.c_str(), &error);
+    if (!uri) {
+      cerr << "Failed to parse MongoDB URI: " << url_ << endl;
+      cerr << "Error: " << error.message << endl;
+      exit(1);
+    }
 
-  if (!pool_) {
+    // 2. 创建连接池
+    pool_ = mongoc_client_pool_new(uri);
+    mongoc_uri_destroy(uri); // pool 建立后，uri 对象就可以释放了
+
+    if (!pool_) {
       cerr << "Failed to create MongoDB client pool." << endl;
       exit(1);
+    }
+  }
+
+  instance_count_++;
   }
 
   // 3. 预先初始化 WriteConcern 对象
@@ -47,15 +61,34 @@ void MongoDB::Init() {
 }
 
 void MongoDB::Close() {
-if (write_concern_) {
-      mongoc_write_concern_destroy(write_concern_);
-      write_concern_ = NULL;
+  if (write_concern_) {
+    mongoc_write_concern_destroy(write_concern_);
+    write_concern_ = NULL;
   }
+
+  {
+  // 加锁处理共享资源
+  lock_guard<mutex> lock(mutex_);
+
+  // 如果 instance_count_ 已经是 0，说明已经关闭过了，直接返回
+  if (instance_count_ <= 0) {
+      return;
+  }
+
+  instance_count_--;
   if (pool_) {
       mongoc_client_pool_destroy(pool_);
       pool_ = NULL;
   }
-  mongoc_cleanup();
+  // 如果这是最后一个离开的线程，负责关灯（销毁 Pool 和清理环境）
+  if (instance_count_ == 0) {
+    if (pool_) {
+      mongoc_client_pool_destroy(pool_);
+      pool_ = nullptr;
+    }
+    mongoc_cleanup();
+  }
+  }
 }
 
 // 辅助函数：给 Collection 设置 Write Concern

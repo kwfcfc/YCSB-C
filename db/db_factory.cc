@@ -34,7 +34,7 @@ DB* DBFactory::CreateDB(utils::Properties &props) {
   } else if (props["dbname"] == "tbb_scan") {
     return new TbbScanDB;
   } else if (props["dbname"] == "mongodb") {
-    return new MongoDB;
+    return new MongoDB(props);
   } else
     return NULL;
 }

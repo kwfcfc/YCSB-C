@@ -9,6 +9,10 @@ namespace ycsbc {
 
 MongoDB::MongoDB() : client_(NULL), database_(NULL), write_concern_(NULL) {}
 
+MongoDB::MongoDB(utils::Properties props)
+    : client_(NULL), database_(NULL), write_concern_(NULL), props_(props) {
+}
+
 MongoDB::~MongoDB() {
   Close();
 }
@@ -78,13 +82,13 @@ int MongoDB::Read(const string &table, const string &key,
     bson_append_document_end(opts, &child);
   }
 
-  // 执行查询
+  // query
   mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(collection, query, opts, NULL);
 
   const bson_t *doc;
   int ret = DB::kErrorNoData;
 
-  // 获取结果 (Java: queryResult.toMap())
+  // (Java: queryResult.toMap())
   if (mongoc_cursor_next(cursor, &doc)) {
     bson_iter_t iter;
     if (bson_iter_init(&iter, doc)) {
@@ -128,7 +132,7 @@ int MongoDB::Insert(const string &table, const string &key,
   bson_destroy(doc);
   mongoc_collection_destroy(collection);
 
-  return r ? DB::kOK : DB::kError;
+  return r ? DB::kOK : DB::kErrorConflict;
 }
 
 // 对应 Java: update(table, key, values) 使用 $set
@@ -154,7 +158,7 @@ int MongoDB::Update(const string &table, const string &key,
   bson_destroy(update);
   mongoc_collection_destroy(collection);
 
-  return r ? DB::kOK : DB::kError;
+  return r ? DB::kOK : DB::kErrorConflict;
 }
 
 // 对应 Java: delete(table, key)
@@ -169,7 +173,7 @@ int MongoDB::Delete(const string &table, const string &key) {
 
   bson_destroy(query);
   mongoc_collection_destroy(collection);
-  return r ? DB::kOK : DB::kError;
+  return r ? DB::kOK : DB::kErrorNoData;
 }
 
 // 对应 Java: scan(table, startkey, recordcount, fields, result)
@@ -182,7 +186,7 @@ int MongoDB::Scan(const string &table, const string &key,
   bson_t *query = BCON_NEW("_id", "{", "$gte", BCON_UTF8(key.c_str()), "}");
 
   // Java: cursor.limit(recordcount)
-  // C: 使用 opts 设置 limit
+  // C: use opts to set limit
   bson_t *opts = bson_new();
   bson_append_int64(opts, "limit", 5, record_count);
 

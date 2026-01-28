@@ -1,5 +1,4 @@
 #include "mongodb_db.h"
-#include "core/properties.h"
 #include <bson/bson.h>
 #include <iostream>
 
@@ -7,10 +6,9 @@ using namespace std;
 
 namespace ycsbc {
 
-MongoDB::MongoDB() : client_(NULL), database_(NULL), write_concern_(NULL) {}
-
-MongoDB::MongoDB(utils::Properties props)
-    : client_(NULL), database_(NULL), write_concern_(NULL), props_(props) {
+MongoDB::MongoDB(const string &url, const string &db_name, const string &wc_type)
+    : client_(NULL), database_(NULL), write_concern_(NULL),
+      url_(url), db_name_(db_name), wc_type_(wc_type) {
 }
 
 MongoDB::~MongoDB() {
@@ -19,31 +17,25 @@ MongoDB::~MongoDB() {
 
 void MongoDB::Init() {
   mongoc_init();
-  const utils::Properties &props = *props_;
 
-  // 1. 获取配置 (对应 Java: getProperties)
-  string url = props.GetProperty("mongodb.url", "mongodb://localhost:27017");
-  db_name_ = props.GetProperty("mongodb.database", "ycsb");
-  string wc_type = props.GetProperty("mongodb.writeConcern", "normal");
-
-  // 2. 连接 MongoDB
+  // 1. 连接 MongoDB
   // 注意：Java旧驱动需要去掉 "mongodb://" 前缀，但 libmongoc 需要这个前缀，所以这里直接使用
-  client_ = mongoc_client_new(url.c_str());
+  client_ = mongoc_client_new(url_.c_str());
   if (!client_) {
-    cerr << "Failed to connect to MongoDB at " << url << endl;
+    cerr << "Failed to connect to MongoDB at " << url_ << endl;
     exit(1);
   }
 
-  // 3. 处理 WriteConcern (对应 Java: "strict", "normal", "none")
+  // 2. 处理 WriteConcern (对应 Java: "strict", "normal", "none")
   // libmongoc 使用 mongoc_write_concern_t
   write_concern_ = mongoc_write_concern_new();
-  if (wc_type == "strict") {
+  if (wc_type_ == "strict") {
     // 对应 Java WriteConcern.STRICT (等待主节点确认)
     mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type == "normal") {
+  } else if (wc_type_ == "normal") {
     // 对应 Java WriteConcern.NORMAL (网络确认)
     mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type == "none") {
+  } else if (wc_type_ == "none") {
     // 对应 Java WriteConcern.NONE (不等待确认)
     mongoc_write_concern_set_w(write_concern_, 0);
   }

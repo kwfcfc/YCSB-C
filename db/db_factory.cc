@@ -34,7 +34,10 @@ DB* DBFactory::CreateDB(utils::Properties &props) {
   } else if (props["dbname"] == "tbb_scan") {
     return new TbbScanDB;
   } else if (props["dbname"] == "mongodb") {
-    return new MongoDB(props);
+    string url = props.GetProperty("mongodb.url", "mongodb://localhost:27017");
+    string db_name = props.GetProperty("mongodb.database", "ycsb");
+    string wc_type = props.GetProperty("mongodb.writeConcern", "normal");
+    return new MongoDB();
   } else
     return NULL;
 }

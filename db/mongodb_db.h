@@ -15,7 +15,8 @@ namespace ycsbc {
 
 class MongoDB : public DB {
  public:
-  MongoDB();
+   MongoDB(const std::string &url, const std::string &db_name,
+           const std::string &wc_type);
   virtual ~MongoDB();
 
   void Init();
@@ -41,8 +42,10 @@ class MongoDB : public DB {
   mongoc_client_t *client_;
   mongoc_database_t *database_;
   mongoc_write_concern_t *write_concern_;
+
   std::string db_name_;
-  utils::Properties props_;  
+  std::string url_;
+  std::string wc_type_;
 };
 
 } // namespace ycsbc

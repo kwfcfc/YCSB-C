@@ -41,6 +41,7 @@ int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
 
 int main(const int argc, const char *argv[]) {
   utils::Properties props;
+  const bool quiet = stoi(props.GetProperty("quiet", "0")) != 0;
   string file_name = ParseCommandLine(argc, argv, props);
 
   ycsbc::DB *db = ycsbc::DBFactory::CreateDB(props);
@@ -68,7 +69,9 @@ int main(const int argc, const char *argv[]) {
     assert(n.valid());
     sum += n.get();
   }
-  cerr << "# Loading records:\t" << sum << endl;
+  if (not quiet) {
+    cerr << "# Loading records:\t" << sum << endl;
+  }
 
   // Peforms transactions
   actual_ops.clear();
@@ -87,8 +90,10 @@ int main(const int argc, const char *argv[]) {
     sum += n.get();
   }
   double duration = timer.End();
-  cerr << "# Transaction throughput (KTPS)" << endl;
-  cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads << '\t';
+  if (not quiet) {
+    cerr << "# Transaction throughput (KTPS)" << endl;
+    cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads << '\t';
+  }
   cerr << total_ops / duration / 1000 << endl;
 }
 
@@ -178,4 +183,3 @@ void UsageMessage(const char *command) {
 inline bool StrStartWith(const char *str, const char *pre) {
   return strncmp(str, pre, strlen(pre)) == 0;
 }
-

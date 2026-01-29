@@ -69,7 +69,7 @@ int main(const int argc, const char *argv[]) {
     assert(n.valid());
     sum += n.get();
   }
-  if (not quiet) {
+  if (!quiet) {
     cerr << "# Loading records:\t" << sum << endl;
   }
 
@@ -90,7 +90,7 @@ int main(const int argc, const char *argv[]) {
     sum += n.get();
   }
   double duration = timer.End();
-  if (not quiet) {
+  if (!quiet) {
     cerr << "# Transaction throughput (KTPS)" << endl;
     cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads << '\t';
   }
@@ -163,7 +163,7 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
         UsageMessage(argv[0]);
         exit(0);
       }
-      props.SetProperty("threadcount", "1");
+      props.SetProperty("quiet", "1");
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);
@@ -183,6 +183,7 @@ void UsageMessage(const char *command) {
   cout << "Options:" << endl;
   cout << "  -threads n: execute using n threads (default: 1)" << endl;
   cout << "  -db dbname: specify the name of the DB to use (default: basic)" << endl;
+  cout << "  -quiet: only print benchmark result (KTPS)" << endl;
   cout << "  -P propertyfile: load properties from the given file. Multiple files can" << endl;
   cout << "                   be specified, and will be processed in the order specified" << endl;
 }

@@ -9,6 +9,7 @@
 #include "core/db.h"
 #include <mongoc/mongoc.h>
 #include <bson/bson.h>
+#include <mutex>
 #include <string>
 #include <vector>
 

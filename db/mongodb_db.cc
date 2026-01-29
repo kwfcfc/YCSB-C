@@ -10,9 +10,10 @@ mongoc_client_pool_t* MongoDB::pool_ = nullptr;
 int MongoDB::instance_count_ = 0;
 std::mutex MongoDB::mutex_;
 
-MongoDB::MongoDB(const string &url, const string &db_name, const string &wc_type)
-    : pool_(NULL), write_concern_(NULL),
-      url_(url), db_name_(db_name), wc_type_(wc_type) {
+MongoDB::MongoDB(const string &url, const string &db_name,
+                 const string &wc_type)
+    : write_concern_(NULL), url_(url), db_name_(db_name), wc_type_(wc_type) {
+
 }
 
 MongoDB::~MongoDB() {

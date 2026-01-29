@@ -157,6 +157,13 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
       }
       input.close();
       argindex++;
+    } else if (strcmp(argv[argindex], "-quiet") == 0) {
+      argindex++;
+      if (argindex >= argc) {
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("threadcount", "1");
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);

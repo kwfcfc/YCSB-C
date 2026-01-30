@@ -20,10 +20,6 @@ MongoDB::~MongoDB() {
 }
 
 void MongoDB::Init() {
-  if (write_concern_ != nullptr) {
-    return;
-  }
-
   {
   // 加锁保护全局状态
   lock_guard<mutex> lock(mutex_);
@@ -54,13 +50,17 @@ void MongoDB::Init() {
   }
 
   // 3. 预先初始化 WriteConcern 对象
-  write_concern_ = mongoc_write_concern_new();
-  if (wc_type_ == "strict") {
-    mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type_ == "normal") {
-    mongoc_write_concern_set_w(write_concern_, 1);
-  } else if (wc_type_ == "none") {
-    mongoc_write_concern_set_w(write_concern_, 0);
+  // write_concern_ 是每个实例自己的，但这里只有一个实例
+  // 所以需要单独判断
+  if (write_concern_ == nullptr) {
+    write_concern_ = mongoc_write_concern_new();
+    if (wc_type_ == "strict" || wc_type_ == "normal") {
+      mongoc_write_concern_set_w(write_concern_, 1);
+    // } else if (wc_type_ == "normal") {
+    //   mongoc_write_concern_set_w(write_concern_, 1);
+    } else if (wc_type_ == "none") {
+      mongoc_write_concern_set_w(write_concern_, 0);
+    }
   }
 }
 

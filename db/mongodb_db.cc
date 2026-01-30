@@ -12,8 +12,7 @@ std::mutex MongoDB::mutex_;
 
 MongoDB::MongoDB(const string &url, const string &db_name,
                  const string &wc_type)
-    : write_concern_(NULL), url_(url), db_name_(db_name), wc_type_(wc_type) {
-
+    : write_concern_(nullptr), url_(url), db_name_(db_name), wc_type_(wc_type) {
 }
 
 MongoDB::~MongoDB() {
@@ -21,6 +20,10 @@ MongoDB::~MongoDB() {
 }
 
 void MongoDB::Init() {
+  if (write_concern_ != nullptr) {
+    return;
+  }
+
   {
   // 加锁保护全局状态
   lock_guard<mutex> lock(mutex_);
@@ -77,10 +80,7 @@ void MongoDB::Close() {
   }
 
   instance_count_--;
-  if (pool_) {
-      mongoc_client_pool_destroy(pool_);
-      pool_ = NULL;
-  }
+
   // 如果这是最后一个离开的线程，负责关灯（销毁 Pool 和清理环境）
   if (instance_count_ == 0) {
     if (pool_) {
@@ -103,7 +103,11 @@ void MongoDB::SetWriteConcern(mongoc_collection_t *collection) {
 int MongoDB::Read(const string &table, const string &key,
                   const vector<string> *fields,
                   vector<KVPair> &result) {
-// 1. 从池中借出一个 client
+  if (!pool_) {
+    return DB::kErrorNoData;
+  }
+
+  // 1. 从池中借出一个 client
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
   // 2. 获取 collection (这是轻量级操作)
   mongoc_collection_t *collection = mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
@@ -161,6 +165,10 @@ int MongoDB::Read(const string &table, const string &key,
 // 对应 Java: insert(table, key, values)
 int MongoDB::Insert(const string &table, const string &key,
                     vector<KVPair> &values) {
+  if (!pool_) {
+    return DB::kErrorNoData;
+  }
+
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
   mongoc_collection_t *collection =
       mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
@@ -188,6 +196,10 @@ int MongoDB::Insert(const string &table, const string &key,
 // 对应 Java: update(table, key, values) 使用 $set
 int MongoDB::Update(const string &table, const string &key,
                     vector<KVPair> &values) {
+  if (!pool_) {
+    return DB::kErrorNoData;
+  }
+
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
   mongoc_collection_t *collection =
       mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
@@ -217,6 +229,10 @@ int MongoDB::Update(const string &table, const string &key,
 
 // 对应 Java: delete(table, key)
 int MongoDB::Delete(const string &table, const string &key) {
+  if (!pool_) {
+    return DB::kErrorNoData;
+  }
+
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
   mongoc_collection_t *collection =
       mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
@@ -238,6 +254,10 @@ int MongoDB::Delete(const string &table, const string &key) {
 int MongoDB::Scan(const string &table, const string &key,
                   int record_count, const std::vector<std::string> *fields,
                   vector<vector<KVPair>> &result) {
+  if (!pool_) {
+    return DB::kErrorNoData;
+  }
+
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
   mongoc_collection_t *collection =
       mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());

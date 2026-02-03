@@ -54,6 +54,7 @@ int main(const int argc, const char *argv[]) {
 
   const int num_threads = stoi(props.GetProperty("threadcount", "1"));
   const bool quiet = stoi(props.GetProperty("quiet", "0")) != 0;
+  const bool latency = stoi(props.GetProperty("quiet", "0")) != 0;
 
   // Loads data
   vector<future<int>> actual_ops;
@@ -90,11 +91,22 @@ int main(const int argc, const char *argv[]) {
     sum += n.get();
   }
   double duration = timer.End();
-  if (not quiet) {
-    cerr << "# Transaction throughput (KTPS)" << endl;
-    cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads << '\t';
+  if (latency) {
+    if (not quiet) {
+      cerr << "# Average Latency (us)" << endl;
+      cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads
+           << '\t';
+    }
+    // output microseconds
+    cerr << duration * 1e6 / total_ops << endl;
+  } else {
+    if (not quiet) {
+      cerr << "# Transaction throughput (KTPS)" << endl;
+      cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads
+           << '\t';
+    }
+    cerr << total_ops / duration / 1000 << endl;
   }
-  cerr << total_ops / duration / 1000 << endl;
 }
 
 string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) {

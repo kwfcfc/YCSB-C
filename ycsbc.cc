@@ -98,7 +98,7 @@ int main(const int argc, const char *argv[]) {
            << '\t';
     }
     // output microseconds
-    cerr << duration * 1e6 / total_ops << endl;
+    cerr << duration * num_threads * 1e6 / total_ops << endl;
   } else {
     if (not quiet) {
       cerr << "# Transaction throughput (KTPS)" << endl;
@@ -176,6 +176,13 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
         exit(0);
       }
       props.SetProperty("quiet", "1");
+    } else if (strcmp(argv[argindex], "-latency") == 0) {
+      argindex++;
+      if (argindex >= argc) {
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("latency", "1");
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);
@@ -195,7 +202,8 @@ void UsageMessage(const char *command) {
   cout << "Options:" << endl;
   cout << "  -threads n: execute using n threads (default: 1)" << endl;
   cout << "  -db dbname: specify the name of the DB to use (default: basic)" << endl;
-  cout << "  -quiet: only print benchmark result (KTPS)" << endl;
+  cout << "  -quiet: only print benchmark result" << endl;
+  cout << "  -latency: print average latency (in microseconds) result instead of throughput" << endl;
   cout << "  -P propertyfile: load properties from the given file. Multiple files can" << endl;
   cout << "                   be specified, and will be processed in the order specified" << endl;
 }

@@ -54,7 +54,7 @@ int main(const int argc, const char *argv[]) {
 
   const int num_threads = stoi(props.GetProperty("threadcount", "1"));
   const bool quiet = stoi(props.GetProperty("quiet", "0")) != 0;
-  const bool latency = stoi(props.GetProperty("quiet", "0")) != 0;
+  const bool latency = stoi(props.GetProperty("latency", "0")) != 0;
 
   // Loads data
   vector<future<int>> actual_ops;

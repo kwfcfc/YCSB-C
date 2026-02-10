@@ -5,7 +5,7 @@ using namespace std;
 
 namespace ycsbc {
 
-// --- 1. 定义静态成员变量 ---
+// --- 1. Global Static Variable ---
 mongoc_client_pool_t* MongoDB::pool_ = nullptr;
 int MongoDB::instance_count_ = 0;
 std::mutex MongoDB::mutex_;
@@ -21,13 +21,13 @@ MongoDB::~MongoDB() {
 
 void MongoDB::Init() {
   {
-  // 加锁保护全局状态
+  // Lock for global clientpool
   lock_guard<mutex> lock(mutex_);
 
   if (instance_count_ == 0) {
     mongoc_init();
 
-    // 1. 解析 URI
+    // 1. Parse URI
     bson_error_t error;
     mongoc_uri_t *uri = mongoc_uri_new_with_error(url_.c_str(), &error);
     if (!uri) {
@@ -36,9 +36,9 @@ void MongoDB::Init() {
       exit(1);
     }
 
-    // 2. 创建连接池
+    // 2. Create client pool
     pool_ = mongoc_client_pool_new(uri);
-    mongoc_uri_destroy(uri); // pool 建立后，uri 对象就可以释放了
+    mongoc_uri_destroy(uri); // Release URI after creating pool
 
     if (!pool_) {
       cerr << "Failed to create MongoDB client pool." << endl;
@@ -49,9 +49,8 @@ void MongoDB::Init() {
   instance_count_++;
   }
 
-  // 3. 预先初始化 WriteConcern 对象
-  // write_concern_ 是每个实例自己的，但这里只有一个实例
-  // 所以需要单独判断
+  // 3. Initialize WriteConcern Object
+  // Every instance has its own write_concern_
   if (write_concern_ == nullptr) {
     write_concern_ = mongoc_write_concern_new();
     if (wc_type_ == "strict" || wc_type_ == "normal") {
@@ -71,17 +70,16 @@ void MongoDB::Close() {
   }
 
   {
-  // 加锁处理共享资源
   lock_guard<mutex> lock(mutex_);
 
-  // 如果 instance_count_ 已经是 0，说明已经关闭过了，直接返回
+  // instance_count_ is 0, meaning it's closed. Return
   if (instance_count_ <= 0) {
       return;
   }
 
   instance_count_--;
 
-  // 如果这是最后一个离开的线程，负责关灯（销毁 Pool 和清理环境）
+  // Last instance needs to clean up
   if (instance_count_ == 0) {
     if (pool_) {
       mongoc_client_pool_destroy(pool_);
@@ -92,14 +90,14 @@ void MongoDB::Close() {
   }
 }
 
-// 辅助函数：给 Collection 设置 Write Concern
+// helper function: set write conern for Collection
 void MongoDB::SetWriteConcern(mongoc_collection_t *collection) {
     if (write_concern_) {
         mongoc_collection_set_write_concern(collection, write_concern_);
     }
 }
 
-// 对应 Java: read(table, key, fields, result)
+// compared to the Java version: read(table, key, fields, result)
 int MongoDB::Read(const string &table, const string &key,
                   const vector<string> *fields,
                   vector<KVPair> &result) {
@@ -107,20 +105,20 @@ int MongoDB::Read(const string &table, const string &key,
     return DB::kErrorNoData;
   }
 
-  // 1. 从池中借出一个 client
+  // 1. borrow a client from pool
   mongoc_client_t *client = mongoc_client_pool_pop(pool_);
-  // 2. 获取 collection (这是轻量级操作)
+  // 2. get collection (这是轻量级操作)
   mongoc_collection_t *collection = mongoc_client_get_collection(client, db_name_.c_str(), table.c_str());
 
-  // 构建查询: { "_id": key }
+  // construct query: { "_id": key }
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
 
-  // 构建选项 opts (用于 Projection)
+  // construct opts (for Projection)
   bson_t *opts = bson_new();
   if (fields) {
     bson_t child;
     bson_append_document_begin(opts, "projection", -1, &child);
-    // 类似 Java: fieldsToReturn.put(field, 1)
+    // similar to Java: fieldsToReturn.put(field, 1)
     for (const string &f : *fields) {
       bson_append_bool(&child, f.c_str(), -1, true);
     }
@@ -138,8 +136,8 @@ int MongoDB::Read(const string &table, const string &key,
     bson_iter_t iter;
     if (bson_iter_init(&iter, doc)) {
       while (bson_iter_next(&iter)) {
-        // 忽略 _id 字段，或者根据需求保留
-        // 这里为了匹配 YCSB 逻辑，通常返回所有 value 字段
+        // ignore _id field
+        // for YCSB, return value fields
         const char *k = bson_iter_key(&iter);
         if (strcmp(k, "_id") == 0) continue;
 
@@ -156,13 +154,13 @@ int MongoDB::Read(const string &table, const string &key,
   mongoc_cursor_destroy(cursor);
   mongoc_collection_destroy(collection);
 
-  // 3. 将 client 还回池中
+  // 3. push client back to pool
   mongoc_client_pool_push(pool_, client);
 
   return ret;
 }
 
-// 对应 Java: insert(table, key, values)
+// similar to Java version: insert(table, key, values)
 int MongoDB::Insert(const string &table, const string &key,
                     vector<KVPair> &values) {
   if (!pool_) {
@@ -181,8 +179,8 @@ int MongoDB::Insert(const string &table, const string &key,
   }
 
   bson_error_t error;
-  // Java 代码通过 getLastError 判断 "n"==1
-  // libmongoc insert_one 返回 true 即表示成功
+  // Java version use getLastError to test "n"==1
+  // libmongoc insert_one return true for success
   bool r = mongoc_collection_insert_one(collection, doc, NULL, NULL, &error);
 
   bson_destroy(doc);
@@ -193,7 +191,7 @@ int MongoDB::Insert(const string &table, const string &key,
   return r ? DB::kOK : DB::kErrorConflict;
 }
 
-// 对应 Java: update(table, key, values) 使用 $set
+// Similar to Java version: update(table, key, values) use $set
 int MongoDB::Update(const string &table, const string &key,
                     vector<KVPair> &values) {
   if (!pool_) {
@@ -207,7 +205,7 @@ int MongoDB::Update(const string &table, const string &key,
 
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
 
-  // 构建更新文档: { "$set": { ... } }
+  // Construct update document: { "$set": { ... } }
   bson_t *update = bson_new();
   bson_t child;
   bson_append_document_begin(update, "$set", 4, &child);
@@ -227,7 +225,7 @@ int MongoDB::Update(const string &table, const string &key,
   return r ? DB::kOK : DB::kErrorConflict;
 }
 
-// 对应 Java: delete(table, key)
+// Similar to Java version: delete(table, key)
 int MongoDB::Delete(const string &table, const string &key) {
   if (!pool_) {
     return DB::kErrorNoData;
@@ -241,7 +239,8 @@ int MongoDB::Delete(const string &table, const string &key) {
   bson_t *query = BCON_NEW("_id", BCON_UTF8(key.c_str()));
   bson_error_t error;
 
-  // Java代码里如果是 Strict 模式会加 $atomic，但在新版驱动中一般由 WriteConcern 保证原子性
+  // In Java code, if it is Strict mode it will set $atomic, but in new driver
+  // it is usually up to WriteConcern for atomicity
   bool r = mongoc_collection_delete_one(collection, query, NULL, NULL, &error);
 
   bson_destroy(query);
@@ -250,7 +249,7 @@ int MongoDB::Delete(const string &table, const string &key) {
   return r ? DB::kOK : DB::kErrorNoData;
 }
 
-// 对应 Java: scan(table, startkey, recordcount, fields, result)
+// Similar to Java: scan(table, startkey, recordcount, fields, result)
 int MongoDB::Scan(const string &table, const string &key,
                   int record_count, const std::vector<std::string> *fields,
                   vector<vector<KVPair>> &result) {
@@ -270,8 +269,8 @@ int MongoDB::Scan(const string &table, const string &key,
   bson_t *opts = bson_new();
   bson_append_int64(opts, "limit", 5, record_count);
 
-  // 如果 scan 也需要支持 fields projection (虽然Java Scan代码里传了 fields 参数但好像没用上?
-  // 不过为了严谨，我们加上)
+  // if scan needs to support fields projection (Though in Java Scan code
+  // fields seem unused)
   if (fields) {
     bson_t child;
     bson_append_document_begin(opts, "projection", -1, &child);
@@ -289,7 +288,7 @@ int MongoDB::Scan(const string &table, const string &key,
       bson_iter_t iter;
       if (bson_iter_init(&iter, doc)) {
           while (bson_iter_next(&iter)) {
-              // 同样跳过 _id
+              // Skip _id too
                const char *k = bson_iter_key(&iter);
               if (strcmp(k, "_id") == 0) continue;
 

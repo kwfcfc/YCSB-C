@@ -9,7 +9,7 @@ COUNT=${4:-"200"}
 
 ## Benchmark config
 echo "-----------------------------------"
-echo "Benchmark："
+echo "Benchmark:"
 echo "  - Runs: $COUNT"
 echo "  - Thread: $THREAD"
 echo "  - Output: $OUT"

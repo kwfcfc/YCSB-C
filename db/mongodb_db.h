@@ -43,10 +43,10 @@ class MongoDB : public DB {
  private:
   void SetWriteConcern(mongoc_collection_t *collection);
 
-  // 1. 将 pool_ 改为静态成员，让所有实例共享
+  // 1. use pool_ as static member shared for all instances
   static mongoc_client_pool_t *pool_;
 
-  // 2. 引入静态计数器和锁，用于管理全局生命周期
+  // 2. use instance count and lock for global life cycle
   static int instance_count_;
   static std::mutex mutex_;
 

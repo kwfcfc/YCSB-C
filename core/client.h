@@ -9,9 +9,12 @@
 #ifndef YCSB_C_CLIENT_H_
 #define YCSB_C_CLIENT_H_
 
+#include <cstdint>
+#include <chrono>
 #include <string>
 #include "db.h"
 #include "core_workload.h"
+#include "timer.h"
 #include "utils.h"
 
 namespace ycsbc {
@@ -21,7 +24,7 @@ class Client {
   Client(DB &db, CoreWorkload &wl) : db_(db), workload_(wl) { }
   
   virtual bool DoInsert();
-  virtual bool DoTransaction();
+  virtual bool DoTransaction(Operation *operation, uint64_t *latency_us);
   
   virtual ~Client() { }
   
@@ -44,9 +47,16 @@ inline bool Client::DoInsert() {
   return (db_.Insert(workload_.NextTable(), key, pairs) == DB::kOK);
 }
 
-inline bool Client::DoTransaction() {
+inline bool Client::DoTransaction(Operation *operation, uint64_t *latency_us) {
+  Operation op = workload_.NextOperation();
+  if (operation) {
+    *operation = op;
+  }
+
+  utils::Timer<double> timer;
+  timer.Start();
   int status = -1;
-  switch (workload_.NextOperation()) {
+  switch (op) {
     case READ:
       status = TransactionRead();
       break;
@@ -64,6 +74,9 @@ inline bool Client::DoTransaction() {
       break;
     default:
       throw utils::Exception("Operation request is not recognized!");
+  }
+  if (latency_us) {
+    *latency_us = timer.EndAs<std::chrono::microseconds>();
   }
   assert(status >= 0);
   return (status == DB::kOK);

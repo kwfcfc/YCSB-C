@@ -27,6 +27,12 @@ class Timer {
     return span.count();
   }
 
+  template <typename DurationType>
+  typename DurationType::rep EndAs() {
+    Clock::time_point t = Clock::now();
+    return std::chrono::duration_cast<DurationType>(t - time_).count();
+  }
+
  private:
   typedef std::chrono::high_resolution_clock Clock;
   typedef std::chrono::duration<T> Duration;
@@ -37,4 +43,3 @@ class Timer {
 } // utils
 
 #endif // YCSB_C_TIMER_H_
-

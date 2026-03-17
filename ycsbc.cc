@@ -7,6 +7,8 @@
 //
 
 #include <cstring>
+#include <cstdint>
+#include <chrono>
 #include <string>
 #include <iostream>
 #include <vector>
@@ -15,6 +17,7 @@
 #include "core/timer.h"
 #include "core/client.h"
 #include "core/core_workload.h"
+#include "core/measurements.h"
 #include "db/db_factory.h"
 
 using namespace std;
@@ -23,20 +26,38 @@ void UsageMessage(const char *command);
 bool StrStartWith(const char *str, const char *pre);
 string ParseCommandLine(int argc, const char *argv[], utils::Properties &props);
 
-int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
-    bool is_loading) {
+struct ThreadRunResult {
+  int oks;
+  ycsbc::ThreadMeasurements measurements;
+
+  ThreadRunResult() : oks(0) { }
+};
+
+int OpsForThread(int total_ops, int num_threads, int thread_id) {
+  return total_ops / num_threads + (thread_id < total_ops % num_threads ? 1 : 0);
+}
+
+ThreadRunResult DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl,
+    const int num_ops, bool is_loading, bool measure_latency) {
   db->Init();
   ycsbc::Client client(*db, *wl);
-  int oks = 0;
+  ThreadRunResult result;
   for (int i = 0; i < num_ops; ++i) {
     if (is_loading) {
-      oks += client.DoInsert();
+      result.oks += client.DoInsert();
     } else {
-      oks += client.DoTransaction();
+      ycsbc::Operation operation = ycsbc::READ;
+      uint64_t latency_us = 0;
+      bool ok = client.DoTransaction(&operation,
+          measure_latency ? &latency_us : NULL);
+      result.oks += ok;
+      if (measure_latency) {
+        result.measurements.Record(operation, latency_us, ok);
+      }
     }
   }
   db->Close();
-  return oks;
+  return result;
 }
 
 int main(const int argc, const char *argv[]) {
@@ -55,20 +76,23 @@ int main(const int argc, const char *argv[]) {
   const int num_threads = stoi(props.GetProperty("threadcount", "1"));
   const bool quiet = stoi(props.GetProperty("quiet", "0")) != 0;
   const bool latency = stoi(props.GetProperty("latency", "0")) != 0;
+  const vector<double> percentiles = ycsbc::ParsePercentiles(
+      props.GetProperty("latencypercentiles", "50,95,99,99.9"));
 
   // Loads data
-  vector<future<int>> actual_ops;
+  vector<future<ThreadRunResult>> actual_ops;
   int total_ops = stoi(props[ycsbc::CoreWorkload::RECORD_COUNT_PROPERTY]);
   for (int i = 0; i < num_threads; ++i) {
     actual_ops.emplace_back(async(launch::async,
-        DelegateClient, db, &wl, total_ops / num_threads, true));
+        DelegateClient, db, &wl, OpsForThread(total_ops, num_threads, i), true,
+        false));
   }
   assert((int)actual_ops.size() == num_threads);
 
   int sum = 0;
   for (auto &n : actual_ops) {
     assert(n.valid());
-    sum += n.get();
+    sum += n.get().oks;
   }
   if (not quiet) {
     cerr << "# Loading records:\t" << sum << endl;
@@ -78,27 +102,32 @@ int main(const int argc, const char *argv[]) {
   actual_ops.clear();
   total_ops = stoi(props[ycsbc::CoreWorkload::OPERATION_COUNT_PROPERTY]);
   utils::Timer<double> timer;
+  ycsbc::Measurements measurements;
   timer.Start();
   for (int i = 0; i < num_threads; ++i) {
     actual_ops.emplace_back(async(launch::async,
-        DelegateClient, db, &wl, total_ops / num_threads, false));
+        DelegateClient, db, &wl, OpsForThread(total_ops, num_threads, i),
+        false, latency));
   }
   assert((int)actual_ops.size() == num_threads);
 
   sum = 0;
   for (auto &n : actual_ops) {
     assert(n.valid());
-    sum += n.get();
+    ThreadRunResult result = n.get();
+    sum += result.oks;
+    if (latency) {
+      measurements.Merge(&result.measurements);
+    }
   }
   double duration = timer.End();
   if (latency) {
     if (not quiet) {
-      cerr << "# Average Latency (us)" << endl;
-      cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads
-           << '\t';
+      cerr << "# Latency summary (us)" << endl;
+      cerr << "# Benchmark\t" << props["dbname"] << '\t' << file_name << '\t'
+           << num_threads << endl;
     }
-    // output microseconds
-    cerr << duration * num_threads * 1e6 / total_ops << endl;
+    measurements.PrintSummary(cerr, percentiles);
   } else {
     if (not quiet) {
       cerr << "# Transaction throughput (KTPS)" << endl;
@@ -170,19 +199,11 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
       input.close();
       argindex++;
     } else if (strcmp(argv[argindex], "-quiet") == 0) {
-      argindex++;
-      if (argindex >= argc) {
-        UsageMessage(argv[0]);
-        exit(0);
-      }
       props.SetProperty("quiet", "1");
-    } else if (strcmp(argv[argindex], "-latency") == 0) {
       argindex++;
-      if (argindex >= argc) {
-        UsageMessage(argv[0]);
-        exit(0);
-      }
+    } else if (strcmp(argv[argindex], "-latency") == 0) {
       props.SetProperty("latency", "1");
+      argindex++;
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);
@@ -203,7 +224,7 @@ void UsageMessage(const char *command) {
   cout << "  -threads n: execute using n threads (default: 1)" << endl;
   cout << "  -db dbname: specify the name of the DB to use (default: basic)" << endl;
   cout << "  -quiet: only print benchmark result" << endl;
-  cout << "  -latency: print average latency (in microseconds) result instead of throughput" << endl;
+  cout << "  -latency: print latency percentiles (in microseconds) instead of throughput" << endl;
   cout << "  -P propertyfile: load properties from the given file. Multiple files can" << endl;
   cout << "                   be specified, and will be processed in the order specified" << endl;
 }

@@ -7,7 +7,7 @@ Yahoo! Cloud Serving Benchmark in C++, a C++ version of YCSB (https://github.com
 To build YCSB-C on Ubuntu, for example:
 
 ```
-$ sudo apt-get install libtbb-dev
+$ sudo apt-get install libtbb-dev libmongoc-dev pkg-config libhiredis-dev
 $ make
 ```
 

@@ -55,8 +55,8 @@ ThreadRunResult DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl,
       if (measure_latency) {
         result.measurements.Record(operation, latency_us, ok);
 
-        // Trigger Magictrace dump on tail latency spike (>1ms)
-        if (latency_us > 1000) {
+        // Trigger Magictrace dump on tail latency spike (>2ms)
+        if (latency_us > 2000) {
           std::cerr << "\n[!] Anomaly detected: " << latency_us
                     << " us. Freezing Magictrace buffer." << std::endl;
           int ret = system("pkill -INT magictrace");

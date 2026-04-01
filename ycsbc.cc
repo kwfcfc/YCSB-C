@@ -13,6 +13,7 @@
 #include <iostream>
 #include <vector>
 #include <future>
+#include <cstdlib>
 #include "core/utils.h"
 #include "core/timer.h"
 #include "core/client.h"
@@ -53,6 +54,16 @@ ThreadRunResult DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl,
       result.oks += ok;
       if (measure_latency) {
         result.measurements.Record(operation, latency_us, ok);
+
+        // Trigger Magictrace dump on tail latency spike (>1ms)
+        if (latency_us > 1000) {
+          std::cerr << "\n[!] Anomaly detected: " << latency_us
+                    << " us. Freezing Magictrace buffer." << std::endl;
+          int ret = system("pkill -INT magictrace");
+          (void)ret; // Suppress unused result warning
+
+          break; // Stop execution to preserve the hardware trace
+        }
       }
     }
   }
